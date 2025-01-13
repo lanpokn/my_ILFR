@@ -36,6 +36,7 @@ flags.DEFINE_boolean(
     'Whether the results are saved in separate folders under different names '
     '(True), or the same folder under different names (False).')
 
+flags.DEFINE_string('single_image', None, 'Path to a single image for testing.')
 
 def center_crop(image, width, height):
   """Returns the center crop of a given image."""
@@ -65,7 +66,24 @@ def write_outputs_same_dir(out_dir,
     utils.write_image(pred_flare, path_prefix + '_output_flare.png')
   if pred_blend is not None:
     utils.write_image(pred_blend, path_prefix + '_output_blend.png')
-
+def resize_or_pad(image, target_height, target_width):
+    """Resize or pad the image to the target size while preserving aspect ratio."""
+    old_height, old_width, _ = image.shape
+    scale = min(target_height / old_height, target_width / old_width)
+    new_height, new_width = int(old_height * scale), int(old_width * scale)
+    
+    # Resize the image
+    resized_image = tf.image.resize(image, [new_height, new_width])
+    
+    # Pad to the target size
+    padded_image = tf.image.pad_to_bounding_box(
+        resized_image,
+        (target_height - new_height) // 2,
+        (target_width - new_width) // 2,
+        target_height,
+        target_width
+    )
+    return padded_image
 
 def write_outputs_separate_dir(out_dir,
                                file_name,
@@ -105,7 +123,8 @@ def process_one_image(model, image_path, out_dir, separate_out_dirs):
     pred_flare = tf.image.resize(pred_flare_low, [2048, 2048], antialias=True)
     pred_scene = utils.remove_flare(input_image, pred_flare)
   else:
-    input_image = center_crop(input_f32, 512, 512)[None, Ellipsis]
+    # input_image = center_crop(input_f32, 512, 512)[None, Ellipsis]
+    input_image = resize_or_pad(input_f32, 512, 512)[None, ...]
     input_image = tf.concat([input_image] * FLAGS.batch_size, axis=0)
     pred_scene = tf.clip_by_value(model(input_image), 0.0, 1.0)
     pred_flare = utils.remove_flare(input_image, pred_scene)
@@ -146,19 +165,35 @@ def load_model(path,
   return model
 
 
+# def main(_):
+#   out_dir = FLAGS.out_dir or os.path.join(FLAGS.input_dir, 'model_output')
+#   tf.io.gfile.makedirs(out_dir)
+
+#   model = load_model(FLAGS.ckpt, FLAGS.model, FLAGS.batch_size)
+
+#   # The following grep works for both png and jpg.
+#   input_files = sorted(tf.io.gfile.glob(os.path.join(FLAGS.input_dir, '*.*g')))
+#   for input_file in tqdm.tqdm(input_files):
+#     process_one_image(model, input_file, out_dir, FLAGS.separate_out_dirs)
+
+#   print('done')
+
 def main(_):
-  out_dir = FLAGS.out_dir or os.path.join(FLAGS.input_dir, 'model_output')
-  tf.io.gfile.makedirs(out_dir)
+    out_dir = FLAGS.out_dir or os.path.join(FLAGS.input_dir, 'model_output')
+    tf.io.gfile.makedirs(out_dir)
 
-  model = load_model(FLAGS.ckpt, FLAGS.model, FLAGS.batch_size)
+    model = load_model(FLAGS.ckpt, FLAGS.model, FLAGS.batch_size)
 
-  # The following grep works for both png and jpg.
-  input_files = sorted(tf.io.gfile.glob(os.path.join(FLAGS.input_dir, '*.*g')))
-  for input_file in tqdm.tqdm(input_files):
-    process_one_image(model, input_file, out_dir, FLAGS.separate_out_dirs)
+    if FLAGS.single_image:
+        # Process a single image
+        process_one_image(model, FLAGS.single_image, out_dir, FLAGS.separate_out_dirs)
+    else:
+        # Process all images in a directory
+        input_files = sorted(tf.io.gfile.glob(os.path.join(FLAGS.input_dir, '*.*g')))
+        for input_file in tqdm.tqdm(input_files):
+            process_one_image(model, input_file, out_dir, FLAGS.separate_out_dirs)
 
-  print('done')
-
+    print('done')
 
 if __name__ == '__main__':
   app.run(main)
