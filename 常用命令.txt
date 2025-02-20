@@ -1,0 +1,7 @@
+python  remove_flare.py   --single_image=simu.jpg   --out_dir=output --model=Uformer    --batch_size=2    --ckpt=model/trained_model
+
+"\\wsl.localhost\Ubuntu\home\lanpokn\2025\Improving-Lens-Flare-Removal\model\trained_model"
+
+python train.py	 --flarec_dir="datesets/real_flare"    --flares_dir="datesets/simu_flare"   --scene_dir="datasets/scene"
+
+conda create -n ILFR python=3.9 -y

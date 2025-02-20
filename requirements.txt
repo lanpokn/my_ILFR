@@ -1,0 +1,12 @@
+absl-py
+numpy<2
+opencv-python
+scikit-image
+scipy
+#tensorflow>2.6
+#tensorflow==2.13
+tensorflow-gpu==2.10
+tensorflow-addons
+tqdm
+
+#cuda11.3,cudnn8.2
