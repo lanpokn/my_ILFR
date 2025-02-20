@@ -144,6 +144,7 @@ def get_flare_dataset(path,
                       batch_size,
                       input_shape = (752, 1008, 3),
                       repeat = -1):
+  # TODO 此处写死了size，这是万恶之源。后续看看如何改
   """Returns flare images according to configuration."""
   if source == 'tfrecord':
     return image_dataset_from_tfrecords(
