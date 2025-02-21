@@ -10,6 +10,7 @@ import data_provider
 import losses
 import models
 import synthesis
+from tqdm import tqdm  # 导入 tqdm
 
 flags.DEFINE_string(
     'train_dir', '/tmp/train',
@@ -123,55 +124,54 @@ def main(_):
 
   step_time_metric = tf.keras.metrics.Mean('step_time')
   step_start_time = time.time()
-  for scene, flarec, flares in tf.data.Dataset.zip((scenes, flares_captured, flares_simulated)):
+  # 如果没有指定 repeat，TensorFlow 或其他框架（如 PyTorch）使用的数据集（如 flares_simulated 和 flares_captured）通常是无限的。
+  # 这意味着它们会在训练过程中不断重复数据，直到你显式地停止它们或定义一个停止条件。
+  total_steps = len(scenes)/2
+  with tqdm(total=total_steps, desc="Training", unit="step") as pbar:
+      for scene, flarec, flares in tf.data.Dataset.zip((scenes, flares_captured, flares_simulated)):
+          tag = np.random.randint(0, 3)
+          
+          # if tag=0 all the flares are captured
+          # if tag=1 all the flares are simulated
+          # if tag=2 one is captured one is simulated
+          if tag == 0:
+              flare = flarec
+          if tag == 1:
+              flare = flares
+          if tag == 2:
+              flare = tf.stack([flarec[0], flares[0]])
+          
+          # Perform one training step.
+          loss_value, summary = train_step(model, scene, flare, loss_fn, optimizer)
+          
+          # By this point, all lazily initialized variables should have been restored by the checkpoint if one was available.
+          if restore_status is not None:
+              restore_status.assert_consumed()
+              restore_status = None
 
-    tag = np.random.randint(0,3)
-    #if tag=0 all the flares are captured
-    #if tag=1 all the flares are simulated
-    #if tag=2 one is captured one is simulated
-    #tag = 2
-    if tag == 0:
-      flare = flarec
-    if tag == 1:
-      flare = flares
-    if tag == 2:
-      flare = tf.stack([flarec[0], flares[0]])
-    
-    # Perform one training step.
-    loss_value, summary = train_step(model, scene, flare, loss_fn, optimizer)
-    # By this point, all lazily initialized variables should have been
-    # restored by the checkpoint if one was available.
-    if restore_status is not None:
-      restore_status.assert_consumed()
-      restore_status = None
+          # Write training summaries and checkpoints to disk.
+          ckpt.step.assign_add(1)
+          if ckpt.step % FLAGS.ckpt_period == 0:
+              # Write model checkpoint to disk.
+              ckpt_mgr.save()
 
-    # Write training summaries and checkpoints to disk.
-    ckpt.step.assign_add(1)
-    if ckpt.step % FLAGS.ckpt_period == 0:
-      # Write model checkpoint to disk.
-      ckpt_mgr.save()
+              # Also save the full model using the latest weights. To restore previous weights, you'd have to load the model and restore a previously saved checkpoint.
+              tf.keras.models.save_model(model, model_dir, save_format='tf')
 
-      # Also save the full model using the latest weights. To restore previous
-      # weights, you'd have to load the model and restore a previously saved
-      # checkpoint.
-      tf.keras.models.save_model(model, model_dir, save_format='tf')
+              # Write summaries to disk, which can be visualized with TensorBoard.
+              with summary_writer.as_default():
+                  tf.summary.image('prediction', summary, max_outputs=1, step=ckpt.step)
+                  tf.summary.scalar('loss', loss_value, step=ckpt.step)
+                  tf.summary.scalar('step_time', step_time_metric.result(), step=ckpt.step)
+                  step_time_metric.reset_state()
 
-      # Write summaries to disk, which can be visualized with TensorBoard.
-      with summary_writer.as_default():
-        tf.summary.image('prediction', summary, max_outputs=1, step=ckpt.step)
-        tf.summary.scalar('loss', loss_value, step=ckpt.step)
-        tf.summary.scalar(
-            'step_time', step_time_metric.result(), step=ckpt.step)
-        step_time_metric.reset_state()
+          # Record elapsed time in this training step.
+          step_end_time = time.time()
+          step_time_metric.update_state(step_end_time - step_start_time)
+          step_start_time = step_end_time
 
-    # Record elapsed time in this training step.
-    step_end_time = time.time()
-    step_time_metric.update_state(step_end_time - step_start_time)
-    step_start_time = step_end_time
-
-  ckpt.training_finished.assign(True)
-  ckpt_mgr.save()
-  logging.info('Done!')
+          # 更新进度条
+          pbar.update(1)  # 每完成一次迭代，更新进度条
 
 
 if __name__ == '__main__':

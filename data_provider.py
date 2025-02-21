@@ -39,6 +39,8 @@ def image_dataset_from_files(data_dir,
   def _parser(file_name):
     blob = tf.io.read_file(file_name)
     image = tf.io.decode_image(blob, dtype=tf.float32)
+    # add by hhq, this may resolve the problem of shape error
+    image = tf.image.resize(image, image_shape[:2])  # Resize the image to (H, W)
     image.set_shape(image_shape)
     return image
 
